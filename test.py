@@ -1,101 +1,140 @@
 # %%
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.integrate import solve_ivp
 from scipy.linalg import solve_continuous_are
 
+
+# %%
+class Pendulum:
+    def __init__(self, l, m, b, Q, R, dt, T, x0, theta_ref):
+        self.g = 9.81
+        self.l = l
+        self.m = m
+        self.b = b
+
+        self.Q = Q
+        self.R = R
+
+        self.dt = dt
+        self.time = np.arange(0, T, dt)
+        self.xs = [x0]
+
+        self.theta_ref = theta_ref
+
+        self.linearize_pendulum()
+        self.design_lqr_controller()
+        self.u = [0]
+
+    def design_lqr_controller(self):
+        P = solve_continuous_are(self.A, self.B, self.Q, self.R)
+        self.K = np.linalg.inv(self.R) @ self.B.T @ P
+
+    def linearize_pendulum(self):
+        theta = self.xs[-1][0]
+        A = np.array(
+            [
+                [0, 1],
+                [-self.g / self.l * np.cos(theta), -self.b / (self.m * self.l**2)],
+            ]
+        )
+        B = np.array([[0], [1 / (self.m * self.l**2)]])
+        C = np.array([[1, 0]])  # output y = theta
+        self.A = A
+        self.B = B
+        self.C = C
+
+    def pendulum_dynamics_lqr(self):
+        theta = self.xs[-1][0]
+        omega = self.xs[-1][1]
+        z = self.xs[-1][2]
+
+        x = np.array([[theta - theta_ref], [omega]])
+
+        # Add integral control: u = -Kx - Ki*z
+        Ki = 0.5
+        u = -self.K @ x - Ki * z
+        self.u.append(u[0, 0])
+
+        dtheta = omega
+        domega = (
+            -(self.g / self.l) * np.sin(theta)
+            - self.b * omega
+            + u[0, 0] / (self.m * self.l**2)
+        )
+        dz = theta - self.theta_ref  # error integration
+
+        return np.array([dtheta, domega, dz])
+
+    def simulate(self, dt_linearize=0.0):
+        last_linearization = 0.0
+        for _ in range(len(self.time) - 1):
+            last_linearization += self.dt
+            if last_linearization >= dt_linearize:
+                last_linearization = 0.0
+                self.linearize_pendulum()
+                self.design_lqr_controller()
+            xp1 = self.xs[-1] + dt * self.pendulum_dynamics_lqr()
+            self.xs.append(xp1)
+        return np.array(self.xs), self.u
+
+
+# %%
 # System parameters
-g = 9.81  # gravity
 l = 1.0  # length
 m = 1.0  # mass
 b = 0.1  # damping
 
-theta_ref = np.pi  # Upright target
-
-
-# Linearization of the pendulum dynamics around theta = pi
-def linearize_pendulum(theta_eq):
-    A = np.array([[0, 1], [-g / l * np.cos(theta_eq), -b / (m * l**2)]])
-    B = np.array([[0], [1 / (m * l**2)]])
-    C = np.array([[1, 0]])  # output y = theta
-    return A, B, C
-
-
-# Design LQR controller
-def design_lqr_controller(A, B, Q, R):
-    P = solve_continuous_are(A, B, Q, R)
-    K = np.linalg.inv(R) @ B.T @ P
-    return K
-
-
-# Get linearized system at theta = pi
-A, B, C = linearize_pendulum(theta_ref)
-
-# Define LQR weights
-Q = np.diag([10, 1])  # weight on angle and angular velocity
+# Define controller
+Q = np.diag([5, 1])  # weight on angle and angular velocity
 R = np.array([[0.1]])  # weight on control effort
+theta_ref = np.pi * 3 / 4
 
-# Compute LQR gain
-K_lqr = design_lqr_controller(A, B, Q, R)
-
-
-# Dynamics of the nonlinear pendulum with integral state
-def pendulum_dynamics_lqr(t, state):
-    theta, omega, z = state
-    x = np.array([[theta - theta_ref], [omega]])
-
-    # Add integral control: u = -Kx - Ki*z
-    Ki = 0.5
-    u = -K_lqr @ x - Ki * z
-
-    dtheta = omega
-    domega = -(g / l) * np.sin(theta) - b * omega + float(u) / (m * l**2)
-    dz = theta - theta_ref  # error integration
-
-    return [dtheta, domega, dz]
-
-
-# %%
-# Initial state: close to upright
+# Initial state
 theta0 = 0
 omega0 = 0.0
 z0 = 0.0
-x0 = [theta0, omega0, z0]
+x0 = np.array([theta0, omega0, z0])
 
-# Time span
-t_span = (0, 10)
-t_eval = np.linspace(*t_span, 1000)
+# Simulator parameters
+T = 30
+dt = 0.01
 
-# Simulate the system
-sol = solve_ivp(pendulum_dynamics_lqr, t_span, x0, t_eval=t_eval)
-
-# Extract results
-theta = sol.y[0]
-omega = sol.y[1]
-z = sol.y[2]
-time = sol.t
+pendulum = Pendulum(l, m, b, Q, R, dt, T, x0, theta_ref)
+xs, u = pendulum.simulate(dt_linearize=1.0)
+time = pendulum.time
 
 # Plot results
-plt.figure(figsize=(10, 6))
+theta = xs[:, 0]
+omega = xs[:, 1]
+z = xs[:, 2]
 
-plt.subplot(3, 1, 1)
-plt.plot(time, theta, label="Theta (rad)")
-plt.axhline(theta_ref, color="r", linestyle="--", label="Target θ = π")
-plt.ylabel("Theta")
+plt.figure(figsize=(10, 10))
+
+plt.subplot(4, 1, 1)
+plt.plot(time, theta)
+plt.axhline(
+    theta_ref, color="r", linestyle="--", label=f"Target θ = {np.round(theta_ref,1)}"
+)
+plt.ylabel("Theta (rad)")
 plt.legend()
 plt.grid()
 
-plt.subplot(3, 1, 2)
-plt.plot(time, omega, label="Omega (rad/s)", color="orange")
-plt.axhline(0, color="k", linestyle="--")
-plt.ylabel("Omega")
+plt.subplot(4, 1, 2)
+plt.plot(time, omega, color="orange")
+plt.ylabel("Omega (rad/s)")
 plt.legend()
 plt.grid()
 
-plt.subplot(3, 1, 3)
+plt.subplot(4, 1, 3)
 plt.plot(time, z, label="Integral of error", color="green")
-plt.axhline(0, color="k", linestyle="--")
 plt.ylabel("Integral of Error")
+plt.xlabel("Time (s)")
+plt.legend()
+plt.grid()
+
+plt.subplot(4, 1, 4)
+plt.plot(time, u, color="k")
+plt.ylabel("Control action")
 plt.xlabel("Time (s)")
 plt.legend()
 plt.grid()
@@ -103,3 +142,5 @@ plt.grid()
 plt.suptitle("LQR + Integral Action for Pendulum Stabilization at θ = π")
 plt.tight_layout()
 plt.show()
+
+# %%
