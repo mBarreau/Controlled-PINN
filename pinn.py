@@ -35,7 +35,7 @@ class PINN:
         self.Kp = tf.Variable(0, dtype=self.x_hat.dtype)
         self.Ki = tf.Variable(0, dtype=self.x_hat.dtype)
 
-        tf.random.set_seed(1234)
+        tf.random.set_seed(seed)
         self.resample()
 
     def set_data(self, data, u):
