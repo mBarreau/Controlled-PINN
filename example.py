@@ -12,13 +12,13 @@ import tensorflow as tf
 # %% System
 A = np.array([[-5, 3], [0, -2]], dtype=np.float32)
 B = np.array([[1], [2]], dtype=np.float32)
-C = np.array([[1, 1]], dtype=np.float32)
+C = np.array([[1, 0]], dtype=np.float32)
 
 f = lambda x: A @ x
 g = lambda _: B
 h = lambda x: C @ x
 
-std_noise = 0.1
+std_noise = 0.01
 u = lambda t: tf.concat([tf.sin(t) + tf.cos(t)], 0)
 
 # External simulator
@@ -38,14 +38,16 @@ max_T = int(np.floor(T / deltaT))
 data = (ss.t[:, 0:max_T:k], y[:, 0:max_T:k])
 
 # %% PINN Optimizer
-pinn = PINN([20, 20, 20], ss, N_phys=10, T=T + P, N_dual=10, seed=1234)
+pinn = PINN(
+    [20, 20, 20], ss, N_phys=10, T=T + P, N_dual=10, forgetting_decay=1, seed=1234
+)
 pinn.set_data(data, u)
 losses = []
 weights = []
 Ks = []
 
 # %% Train
-loss, weight, K = pinn.train(2000)
+loss, weight, K = pinn.train(5000)
 losses += loss
 weights += weight
 Ks += K
@@ -60,6 +62,7 @@ plt.grid()
 
 plt.figure()
 plt.plot(weights)
+plt.yscale("log")
 plt.xlabel("Epoch")
 plt.ylabel("Weight value")
 plt.grid()
@@ -84,4 +87,6 @@ plt.ylabel("$L_2$ error")
 plt.grid()
 plt.show()
 
+normalized_error = np.mean(error) / np.mean(np.linalg.norm(x, axis=0))
+print(f"Normalized error: {np.round(100*normalized_error, 3)}%")
 # %%
