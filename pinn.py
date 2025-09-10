@@ -102,7 +102,6 @@ class PINN:
         self.optimizer_dual.apply_gradients(zip(grads, [self.weight]))
         return self.get_cost()"""
 
-        """        
         A = -hessian(self.get_mse_data, self.x_hat.trainable_variables)
         B = -gradient(self.get_mse_residual, self.x_hat.trainable_variables)
         C = tf.transpose(
@@ -118,7 +117,6 @@ class PINN:
         C_r = C @ Q
 
         if tf.abs(tf.linalg.det(tf.concat([B_r, A_r @ B_r], axis=1))) <= 0.01:
-            self.weight.assign(self.Kp * self.get_mse_residual() + self.Ki * integral)
             return self.Kp, self.Ki
 
         phi_m = 65 * np.pi / 180
@@ -129,11 +127,10 @@ class PINN:
         Kp = (a + b) * np.cos(phi_m) / (K * omega_c)
         Ki = Kp * omega_c / np.tan(phi_m)
         alpha = 0.9
-        """
 
-        Kp = 0.0
+        """Kp = 0.0
         Ki = 1.0
-        alpha = 0
+        alpha = 0"""
 
         self.Kp.assign(alpha * self.Kp + (1 - alpha) * Kp)
         self.Ki.assign(alpha * self.Ki + (1 - alpha) * Ki)
