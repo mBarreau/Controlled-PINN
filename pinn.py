@@ -14,6 +14,7 @@ class PINN:
         self.optimizer_primal = tf.keras.optimizers.Adam(learning_rate=1e-3)
         # self.optimizer_dual = tf.keras.optimizers.Adam(learning_rate=1e-3)
         self.delta_t_dual = self.optimizer_primal.learning_rate * N_dual
+        self.delta_t_primal = self.optimizer_primal.learning_rate
         self.N_dual = N_dual
         self.N_phys = N_phys
         self.T = T
@@ -31,7 +32,8 @@ class PINN:
             np.exp(-forgetting_decay * t[::-1]), dtype=self.x_hat.dtype
         )
         self.weight = tf.Variable(0, dtype=self.x_hat.dtype)
-        self.integral = tf.Variable(np.zeros((N,)), dtype=self.x_hat.dtype)
+        # self.integral = tf.Variable(np.zeros((N,)), dtype=self.x_hat.dtype)
+        self.integral = tf.Variable(0, dtype=self.x_hat.dtype)
         self.Kp = tf.Variable(0, dtype=self.x_hat.dtype)
         self.Ki = tf.Variable(0, dtype=self.x_hat.dtype)
 
@@ -100,13 +102,7 @@ class PINN:
         self.optimizer_dual.apply_gradients(zip(grads, [self.weight]))
         return self.get_cost()"""
 
-        # self.integral.assign_add(delta_t * self.get_mse_residual())
-        new_value = tf.reshape(tf.convert_to_tensor(self.get_mse_residual()), (1,))
-        self.integral.assign(tf.concat([self.integral[1:], new_value], axis=0))
-        integral = self.delta_t_dual * tf.reduce_sum(
-            self.forgetting_factor * self.integral
-        )
-
+        """        
         A = -hessian(self.get_mse_data, self.x_hat.trainable_variables)
         B = -gradient(self.get_mse_residual, self.x_hat.trainable_variables)
         C = tf.transpose(
@@ -133,17 +129,27 @@ class PINN:
         Kp = (a + b) * np.cos(phi_m) / (K * omega_c)
         Ki = Kp * omega_c / np.tan(phi_m)
         alpha = 0.9
+        """
 
-        """Kp = 0
-        Ki = 1
-        alpha = 0"""
+        Kp = 0.0
+        Ki = 1.0
+        alpha = 0
 
         self.Kp.assign(alpha * self.Kp + (1 - alpha) * Kp)
         self.Ki.assign(alpha * self.Ki + (1 - alpha) * Ki)
 
-        self.weight.assign(self.Kp * self.get_mse_residual() + self.Ki * integral)
-
         return Kp, Ki
+
+    @tf.function
+    def compute_weight(self):
+        self.integral.assign_add(self.delta_t_primal * self.get_mse_residual())
+        integral = self.integral
+        """new_value = tf.reshape(tf.convert_to_tensor(self.get_mse_residual()), (1,))
+        self.integral.assign(tf.concat([self.integral[1:], new_value], axis=0))
+        integral = self.delta_t_primal * tf.reduce_sum(
+            self.forgetting_factor * self.integral
+        )"""
+        self.weight.assign(self.Kp * self.get_mse_residual() + self.Ki * integral)
 
     def train(self, epochs=3000):
         losses = []
@@ -157,6 +163,7 @@ class PINN:
                 self.dual_update()
                 Ks.append([self.Kp.numpy(), self.Ki.numpy()])
                 self.resample()
+            self.compute_weight()
             loss = self.get_cost().numpy()
             pbar.set_description(f"Loss: {loss:.6f}")
             losses.append(loss)

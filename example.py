@@ -87,6 +87,6 @@ plt.ylabel("$L_2$ error")
 plt.grid()
 plt.show()
 
-normalized_error = np.mean(error) / np.mean(np.linalg.norm(x, axis=0))
+normalized_error = np.sqrt(np.mean(error**2) / np.mean(np.linalg.norm(x, axis=0) ** 2))
 print(f"Normalized error: {np.round(100*normalized_error, 3)}%")
 # %%
