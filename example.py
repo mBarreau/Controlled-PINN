@@ -1,6 +1,6 @@
 # %%
 from pinn import PINN
-
+from pinn_lqr import PINN_LQR
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -38,9 +38,12 @@ max_T = int(np.floor(T / deltaT))
 data = (ss.t[:, 0:max_T:k], y[:, 0:max_T:k])
 
 # %% PINN Optimizer
-pinn = PINN(
+pinn = PINN_LQR(
     [20, 20, 20], ss, N_phys=10, T=T + P, N_dual=10, forgetting_decay=1, seed=1234
 )
+# pinn = PINN(
+#     [20, 20, 20], ss, N_phys=10, T=T + P, N_dual=10, forgetting_decay=1, seed=1234
+# )
 pinn.set_data(data, u)
 losses = []
 weights = []
