@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import solve_continuous_are
+from copy import deepcopy
 
 
 # %%
@@ -30,6 +31,7 @@ class Pendulum:
         self.K = np.linalg.inv(self.R) @ self.B.T @ P
 
     def linearize_pendulum(self):
+        self.operating_point = deepcopy(self.xs[-1])
         theta = self.xs[-1][0]
         A = np.array(
             [
@@ -47,12 +49,15 @@ class Pendulum:
         theta = self.xs[-1][0]
         omega = self.xs[-1][1]
         z = self.xs[-1][2]
+        delta_z = self.xs[-1][2] - self.operating_point[2]
 
-        x = np.array([[theta - theta_ref], [omega]])
+        delta_x = np.array(
+            [[theta - self.operating_point[0]], [omega - self.operating_point[1]]]
+        )
 
         # Add integral control: u = -Kx - Ki*z
-        Ki = 0.5
-        u = -self.K @ x - Ki * z
+        Ki = 5
+        u = -self.K @ delta_x - Ki * delta_z - 1 * z
         self.u.append(u[0, 0])
 
         dtheta = omega
@@ -73,6 +78,7 @@ class Pendulum:
                 last_linearization = 0.0
                 self.linearize_pendulum()
                 self.design_lqr_controller()
+                print(self.K)
             xp1 = self.xs[-1] + dt * self.pendulum_dynamics_lqr()
             self.xs.append(xp1)
         return np.array(self.xs), self.u
@@ -96,11 +102,11 @@ z0 = 0.0
 x0 = np.array([theta0, omega0, z0])
 
 # Simulator parameters
-T = 30
+T = 50
 dt = 0.01
 
 pendulum = Pendulum(l, m, b, Q, R, dt, T, x0, theta_ref)
-xs, u = pendulum.simulate(dt_linearize=1.0)
+xs, u = pendulum.simulate(dt_linearize=5.0)
 time = pendulum.time
 
 # Plot results
@@ -139,7 +145,7 @@ plt.xlabel("Time (s)")
 plt.legend()
 plt.grid()
 
-plt.suptitle("LQR + Integral Action for Pendulum Stabilization at θ = π")
+plt.suptitle(f"LQR + Integral Action for Pendulum Stabilization at θ = {theta_ref}")
 plt.tight_layout()
 plt.show()
 
