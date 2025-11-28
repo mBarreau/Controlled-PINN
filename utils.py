@@ -65,7 +65,7 @@ class NeuralNetwork(tf.Module):
         self.phi = phi
         self.output_dim = output_dim
 
-    @tf.function
+    # @tf.function
     def __call__(self, input):
         num_layers = len(self.Ws)
         H = tf.cast(input, self.dtype)

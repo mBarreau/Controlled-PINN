@@ -7,14 +7,14 @@ from utils import NeuralNetwork, gradient, hessian
 
 class PINN:
     def __init__(
-        self, layers, ss, N_phys=10, N_dual=10, T=5, forgetting_decay=1e-3, seed=1234
+        self, layers, ss, N_phys=10, N_dual=10, T=5, forgetting_factor=1e-3, seed=1234
     ):
         self.x_hat = NeuralNetwork([1] + layers + [ss.n], seed=seed)
         self.n = ss.n
         self.optimizer_primal = tf.keras.optimizers.Adam(learning_rate=1e-3)
-        # self.optimizer_dual = tf.keras.optimizers.Adam(learning_rate=1e-3)
+        self.optimizer_dual = tf.keras.optimizers.SGD(learning_rate=1e-3 * N_dual)
         self.delta_t_dual = self.optimizer_primal.learning_rate * N_dual
-        self.delta_t_primal = self.optimizer_primal.learning_rate
+        # self.delta_t_primal = self.optimizer_primal.learning_rate
         self.N_dual = N_dual
         self.N_phys = N_phys
         self.T = T
@@ -26,14 +26,9 @@ class PINN:
         )
         self.data = None
 
-        t = np.arange(0, 5 / forgetting_decay, self.delta_t_dual)
-        N = len(t)
-        self.forgetting_factor = tf.constant(
-            np.exp(-forgetting_decay * t[::-1]), dtype=self.x_hat.dtype
-        )
-        self.weight = tf.Variable(0, dtype=self.x_hat.dtype)
-        # self.integral = tf.Variable(np.zeros((N,)), dtype=self.x_hat.dtype)
+        self.forgetting_factor = forgetting_factor
         self.integral = tf.Variable(0, dtype=self.x_hat.dtype)
+        self.weight = tf.Variable(0, dtype=self.x_hat.dtype)
         self.Kp = tf.Variable(0, dtype=self.x_hat.dtype)
         self.Ki = tf.Variable(0, dtype=self.x_hat.dtype)
 
@@ -95,74 +90,31 @@ class PINN:
 
     @tf.function
     def dual_update(self):
-        """with tf.GradientTape(watch_accessed_variables=False) as loss_tape:
-            loss_tape.watch(self.weight)
-            loss = -self.get_cost()
-        grads = loss_tape.gradient(loss, [self.weight])
-        self.optimizer_dual.apply_gradients(zip(grads, [self.weight]))
-        return self.get_cost()"""
-
-        A = -hessian(self.get_mse_data, self.x_hat.trainable_variables)
-        B = -gradient(self.get_mse_residual, self.x_hat.trainable_variables)
-        C = tf.transpose(
-            gradient(self.get_mse_residual, self.x_hat.trainable_variables)
+        self.integral.assign_add(
+            self.delta_t_dual
+            * (self.get_mse_residual() - self.forgetting_factor * self.integral)
         )
-
-        eigenvalues, eigenvectors = tf.linalg.eigh(A)
-        explained_variance = tf.abs(eigenvalues) / tf.reduce_sum(tf.abs(eigenvalues))
-        k = 2
-        Q = eigenvectors[:, -k:]
-        A_r = tf.transpose(Q) @ A @ Q
-        B_r = tf.transpose(Q) @ B
-        C_r = C @ Q
-
-        if tf.abs(tf.linalg.det(tf.concat([B_r, A_r @ B_r], axis=1))) <= 0.01:
-            return self.Kp, self.Ki
-
-        phi_m = 65 * np.pi / 180
-
-        a, b = A_r[0, 0], A_r[1, 1]
-        omega_c = tf.sqrt(tf.abs(a * b))
-        K = tf.abs(tf.reshape(C_r @ tf.linalg.inv(A_r) @ B_r * omega_c**2, []))
-        Kp = (a + b) * np.cos(phi_m) / (K * omega_c)
-        Ki = Kp * omega_c / np.tan(phi_m)
-        alpha = 0.9
-
-        """Kp = 0.0
-        Ki = 1.0
-        alpha = 0"""
-
-        self.Kp.assign(alpha * self.Kp + (1 - alpha) * Kp)
-        self.Ki.assign(alpha * self.Ki + (1 - alpha) * Ki)
-
-        return Kp, Ki
+        return self.get_cost()
 
     @tf.function
     def compute_weight(self):
-        self.integral.assign_add(self.delta_t_primal * self.get_mse_residual())
-        integral = self.integral
-        """new_value = tf.reshape(tf.convert_to_tensor(self.get_mse_residual()), (1,))
-        self.integral.assign(tf.concat([self.integral[1:], new_value], axis=0))
-        integral = self.delta_t_primal * tf.reduce_sum(
-            self.forgetting_factor * self.integral
-        )"""
-        self.weight.assign(self.Kp * self.get_mse_residual() + self.Ki * integral)
+        Kp = 0
+        Ki = 1
+        self.weight.assign(Kp * self.get_mse_residual() + Ki * self.integral)
 
     def train(self, epochs=3000):
         losses = []
         weights = []
-        Ks = []
         self.resample()
         pbar = tqdm(range(epochs))
         for i in pbar:
             self.primal_update()
             if i % self.N_dual == 0 and i > 0:
                 self.dual_update()
-                Ks.append([self.Kp.numpy(), self.Ki.numpy()])
                 self.resample()
             self.compute_weight()
             loss = self.get_cost().numpy()
             pbar.set_description(f"Loss: {loss:.6f}")
             losses.append(loss)
             weights.append(self.weight.numpy())
-        return losses, weights, Ks
+        return losses, weights
