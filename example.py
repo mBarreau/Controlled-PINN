@@ -43,13 +43,14 @@ max_T = int(np.floor(T / deltaT))
 data = (ss.t[:, 0:max_T:k], y[:, 0:max_T:k])
 
 # %% PINN Optimizer
-forgetting_factors = [0, 0.5, 1, 2, 3, 4, 5]
+forgetting_factors = [1]
+training = "vanilla"  # "vanilla" or "primal-dual"
 seeds = np.arange(20)
 total = len(forgetting_factors) * 2 * len(seeds)
 num = 0
-for i, forgetting_factor in enumerate(forgetting_factors):
-    for j, model_mismatch in enumerate([True, False]):  # [False, True]:
-        for k, seed in enumerate(seeds):
+for forgetting_factor in forgetting_factors:
+    for model_mismatch in [True, False]:
+        for seed in seeds:
             print(f"Progress: {num}/{total}")
             pinn = PINN(
                 [20, 20, 20],
@@ -59,6 +60,10 @@ for i, forgetting_factor in enumerate(forgetting_factors):
                 N_dual=10,
                 forgetting_factor=forgetting_factor,
                 seed=seed,
+                training=training,
+                initial_integral=(
+                    0.0 if training == "primal-dual" else forgetting_factor
+                ),
             )
             pinn.set_data(data, u)
             losses = []
@@ -74,7 +79,7 @@ for i, forgetting_factor in enumerate(forgetting_factors):
             )
             print(f"Normalized error: {np.round(100*normalized_error, 3)}%")
 
-            directory = f"output/{"mismatch" if model_mismatch else "match"}"
+            directory = f"output/{training}/{"mismatch" if model_mismatch else "match"}"
             os.makedirs(directory, exist_ok=True)
             with open(
                 f"{directory}/{str(forgetting_factor).replace(".", "_")}.csv",

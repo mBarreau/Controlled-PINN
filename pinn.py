@@ -2,19 +2,27 @@ import tensorflow as tf
 import numpy as np
 from tqdm import tqdm
 
-from utils import NeuralNetwork, gradient, hessian
+from utils import NeuralNetwork
 
 
 class PINN:
     def __init__(
-        self, layers, ss, N_phys=10, N_dual=10, T=5, forgetting_factor=1e-3, seed=1234
+        self,
+        layers,
+        ss,
+        N_phys=10,
+        N_dual=10,
+        T=5,
+        forgetting_factor=1e-3,
+        training="primal-dual",
+        initial_integral=0.0,
+        seed=1234,
     ):
         self.x_hat = NeuralNetwork([1] + layers + [ss.n], seed=seed)
         self.n = ss.n
         self.optimizer_primal = tf.keras.optimizers.Adam(learning_rate=1e-3)
         self.optimizer_dual = tf.keras.optimizers.SGD(learning_rate=1e-3 * N_dual)
         self.delta_t_dual = self.optimizer_primal.learning_rate * N_dual
-        # self.delta_t_primal = self.optimizer_primal.learning_rate
         self.N_dual = N_dual
         self.N_phys = N_phys
         self.T = T
@@ -26,11 +34,10 @@ class PINN:
         )
         self.data = None
 
+        self.training = training
         self.forgetting_factor = forgetting_factor
-        self.integral = tf.Variable(0, dtype=self.x_hat.dtype)
+        self.integral = tf.Variable(initial_integral, dtype=self.x_hat.dtype)
         self.weight = tf.Variable(0, dtype=self.x_hat.dtype)
-        self.Kp = tf.Variable(0, dtype=self.x_hat.dtype)
-        self.Ki = tf.Variable(0, dtype=self.x_hat.dtype)
 
         tf.random.set_seed(seed)
         self.resample()
@@ -110,7 +117,8 @@ class PINN:
         for i in pbar:
             self.primal_update()
             if i % self.N_dual == 0 and i > 0:
-                self.dual_update()
+                if self.training == "primal-dual":
+                    self.dual_update()
                 self.resample()
             self.compute_weight()
             loss = self.get_cost().numpy()
