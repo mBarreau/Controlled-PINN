@@ -34,6 +34,9 @@ class PINN:
         )
         self.data = None
 
+        self.Kp = 1.0
+        self.Ki = 1.0
+
         self.training = training
         self.forgetting_factor = forgetting_factor
         self.integral = tf.Variable(initial_integral, dtype=self.x_hat.dtype)
@@ -105,9 +108,7 @@ class PINN:
 
     @tf.function
     def compute_weight(self):
-        Kp = 0
-        Ki = 1
-        self.weight.assign(Kp * self.get_mse_residual() + Ki * self.integral)
+        self.weight.assign(self.Kp * self.get_mse_residual() + self.Ki * self.integral)
 
     def train(self, epochs=3000):
         losses = []

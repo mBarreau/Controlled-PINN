@@ -43,18 +43,20 @@ max_T = int(np.floor(T / deltaT))
 data = (ss.t[:, 0:max_T:k], y[:, 0:max_T:k])
 
 # %% PINN Optimizer
-forgetting_factors = [1]
-training = "vanilla"  # "vanilla" or "primal-dual"
-seeds = np.arange(20)
-total = len(forgetting_factors) * 2 * len(seeds)
+save = {"accuracy": False, "weights": True}
+forgetting_factors = [0, 2]
+training = "primal-dual"  # "vanilla" or "primal-dual"
+model_mismatch = [True, False]  # True or False
+seeds = np.arange(1)
+total = len(forgetting_factors) * len(model_mismatch) * len(seeds)
 num = 0
 for forgetting_factor in forgetting_factors:
-    for model_mismatch in [True, False]:
+    for mismatch in model_mismatch:
         for seed in seeds:
-            print(f"Progress: {num}/{total}")
+            print(f"Progress: {num+1}/{total}")
             pinn = PINN(
                 [20, 20, 20],
-                ss2 if model_mismatch else ss,
+                ss2 if mismatch else ss,
                 N_phys=10,
                 T=T + P,
                 N_dual=10,
@@ -65,6 +67,7 @@ for forgetting_factor in forgetting_factors:
                     0.0 if training == "primal-dual" else forgetting_factor
                 ),
             )
+            pinn.Kp = 0
             pinn.set_data(data, u)
             losses = []
             weights = []
@@ -79,20 +82,30 @@ for forgetting_factor in forgetting_factors:
             )
             print(f"Normalized error: {np.round(100*normalized_error, 3)}%")
 
-            directory = f"output/{training}/{"mismatch" if model_mismatch else "match"}"
-            os.makedirs(directory, exist_ok=True)
-            with open(
-                f"{directory}/{str(forgetting_factor).replace(".", "_")}.csv",
-                "a",
-                newline="",
-            ) as f:
-                writer = csv.writer(f)
-                writer.writerow([seed, normalized_error])
+            for s in save:
+                if save[s]:
+                    directory = (
+                        f"output/{s}/{training}/{"mismatch" if mismatch else "match"}"
+                    )
+                    os.makedirs(directory, exist_ok=True)
+                    with open(
+                        f"{directory}/{str(forgetting_factor).replace(".", "_")}.csv",
+                        "a",
+                        newline="",
+                    ) as f:
+                        writer = csv.writer(f)
+                        if s == "accuracy":
+                            writer.writerow([seed, normalized_error])
+                        elif s == "weights":
+                            for weight in weights:
+                                writer.writerow([seed, weight])
             num += 1
+
 
 # %% Plot after training
 plt.figure()
 plt.plot(losses)
+plt.legend()
 plt.yscale("log")
 plt.xlabel("Epoch")
 plt.ylabel("Loss value")
@@ -106,7 +119,6 @@ plt.ylabel("Weight value")
 plt.grid()
 
 plot(ss.t, x, pinn, T=T)
-plot(ss.t, y, pinn.y, T=T, name="y")
 
 plt.figure()
 error = np.linalg.norm(x - pinn(ss.t).numpy(), axis=0).reshape((1, -1))
@@ -117,17 +129,4 @@ plt.ylabel("$L_2$ error")
 plt.grid()
 plt.show()
 
-normalized_error = np.sqrt(np.mean(error**2) / np.mean(np.linalg.norm(x, axis=0) ** 2))
-print(f"Normalized error: {np.round(100*normalized_error, 3)}%")
-
-# %% Save results
-directory = f"output/{"mismatch" if model_mismatch else "match"}"
-os.makedirs(directory, exist_ok=True)
-with open(
-    f"{directory}/{forgetting_factor}.csv",
-    "a",
-    newline="",
-) as f:
-    writer = csv.writer(f)
-    writer.writerow([seed, normalized_error])
 # %%
